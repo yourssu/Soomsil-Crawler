@@ -1,0 +1,7 @@
+es:
+  id: ${ES_ID}
+  password: ${ES_PASSWORD}
+  endpoint: ${ES_ENDPOINT}
+
+general:
+  user-agent: ${USER_AGENT}
