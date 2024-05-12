@@ -1,6 +1,5 @@
 package com.yourssu.crawling.crawling.application
 
-import com.yourssu.crawling.crawling.aop.TimeChecker
 import com.yourssu.crawling.crawling.infra.entity.Information
 import com.yourssu.crawling.crawling.infra.repository.InformationRepository
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +12,8 @@ import org.jsoup.nodes.Element
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
+import java.time.Duration
+import java.time.LocalDateTime
 
 @Service
 class SSUCatchCrawlingService(
@@ -52,69 +53,77 @@ class SSUCatchCrawlingService(
         endNumber: Int,
         source: String
     ) {
-        TimeChecker.check {
-            val jobs = mutableListOf<Deferred<Unit>>()
-            val coroutineScope = CoroutineScope(Dispatchers.IO)
+        val startAt = LocalDateTime.now()
+        log.info("Start At : $startAt")
 
-            for (pageNumber in 1..endNumber) {
-                val deferredJob: Deferred<Unit> =
-                    coroutineScope.async {
-                        log.info("crawling page number : {}", pageNumber)
-                        val document = Jsoup.connect("$baseUrl/$pageNumber")
-                            .userAgent(userAgent)
-                            .get()
+        val jobs = mutableListOf<Deferred<Unit>>()
+        val coroutineScope = CoroutineScope(Dispatchers.IO)
 
-                        val ul = document.select(ulSelector)
+        for (pageNumber in 1..endNumber) {
+            val deferredJob: Deferred<Unit> =
+                coroutineScope.async {
+                    val document = Jsoup.connect("$baseUrl/$pageNumber")
+                        .userAgent(userAgent)
+                        .get()
 
-                        var faviconElement: Element? = document.head()
-                            .select("link[href~=.*\\.ico]")
+                    val ul = document.select(ulSelector)
+
+                    var faviconElement: Element? = document.head()
+                        .select("link[href~=.*\\.ico]")
+                        .first()
+
+                    val faviconUrl: String? = if (faviconElement != null) {
+                        faviconElement.attr("href")
+                    } else {
+                        faviconElement = document.head()
+                            .select("link[rel=icon]")
                             .first()
 
-                        val faviconUrl: String? = if (faviconElement != null) {
-                            faviconElement.attr("href")
-                        } else {
-                            faviconElement = document.head()
-                                .select("link[rel=icon]")
-                                .first()
-
-                            faviconElement?.attr("href")
-                        }
-
-                        ul.forEach {
-                            val date = it.selectFirst(dateSelector)?.text() ?: ""
-                            val title = it.selectFirst(titleSelector)?.text() ?: ""
-                            val contentUrl = it.selectFirst(urlSelector)?.attr("abs:href") ?: ""
-                            val paragraphs = Jsoup.connect(contentUrl).get().select(contentSelector)
-
-                            val imgList = paragraphs.select("img").map { img -> img.attr("src") }
-
-                            val content = StringBuilder()
-                            for (paragraph in paragraphs) {
-                                val trimmedText = paragraph.text().replace("\\s+".toRegex(), " ").trim()
-                                if (trimmedText.isNotEmpty()) {
-                                    content.append(trimmedText).append("\n")
-                                }
-                            }
-
-                            informationRepository.save(
-                                Information(
-                                    title = title,
-                                    content = content.toString().trim(),
-                                    date = date,
-                                    contentUrl = contentUrl,
-                                    imgList = imgList,
-                                    favicon = faviconUrl,
-                                    source = source
-                                )
-                            )
-                        }
+                        faviconElement?.attr("href") // FIXME: 여기마저도 해당 안 될 경우 디폴트 이미지 제공
                     }
-                jobs.add(deferredJob)
-            }
 
-            coroutineScope.async {
-                jobs.awaitAll()
-            }
+                    val informationData = mutableListOf<Information>()
+
+                    ul.forEach {
+                        val date = it.selectFirst(dateSelector)?.text() ?: ""
+                        val title = it.selectFirst(titleSelector)?.text() ?: ""
+                        val contentUrl = it.selectFirst(urlSelector)?.attr("abs:href") ?: ""
+                        val paragraphs = Jsoup.connect(contentUrl).get().select(contentSelector)
+
+                        val imgList = paragraphs.select("img").map { img -> img.attr("src") }
+
+                        val content = StringBuilder()
+                        for (paragraph in paragraphs) {
+                            val trimmedText = paragraph.text().replace("\\s+".toRegex(), " ").trim()
+                            if (trimmedText.isNotEmpty()) {
+                                content.append(trimmedText).append("\n")
+                            }
+                        }
+
+                        val information = Information(
+                            title = title,
+                            content = content.toString().trim(),
+                            date = date,
+                            contentUrl = contentUrl,
+                            imgList = imgList,
+                            favicon = faviconUrl,
+                            source = source
+                        )
+
+                        informationData.add(information)
+                    }
+                    log.info("crawling page number : {}", pageNumber)
+                    informationRepository.saveAll(informationData)
+                }
+            jobs.add(deferredJob)
+        }
+
+        coroutineScope.async {
+            jobs.awaitAll()
+            val endAt = LocalDateTime.now()
+
+            log.info("End At : $endAt")
+            log.info("Logic Duration : ${Duration.between(startAt, endAt).toSeconds()} s")
         }
     }
 }

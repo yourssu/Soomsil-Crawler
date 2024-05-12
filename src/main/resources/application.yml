@@ -5,3 +5,15 @@ es:
 
 general:
   user-agent: ${USER_AGENT}
+
+#logging:
+#  level:
+#    org:
+#      springframework:
+#        data:
+#          elasticsearch:
+#            core: DEBUG
+#      elasticsearch:
+#        client: TRACE
+#      apache:
+#        http: TRACE
